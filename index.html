@@ -377,6 +377,10 @@ const StakingAddress = "0x8f984096B94104ef45efE4fDfB5D2a77841c259c";            
         <div style="flex:1;">Your staked LP counts toward your pool share, so you earn dividends on it like any other share. Choose which tokens those dividends are paid in on the Reward Tokens tab.</div>
         <button class="small primary" id="stkGoRewards">Set reward tokens</button>
       </div>
+      <div class="lock-note" style="margin-top:10px; align-items:center;">
+        <span>⚠</span>
+        <div style="flex:1;">Any LP left in the position is re-valued at 1x (no tier bonus).</div>
+      </div>
       <div class="section-title">Your LP pools</div>
       <div id="stkPools"></div>
     </div>
@@ -4071,14 +4075,14 @@ function renderStaking(){
       <div class="hint" style="margin-top:8px;">${tierNote}</div>
       <div class="grid cols-2" style="margin-top:14px;">
         <div class="field"><label>Stake LP</label>
+          <div class="hint" data-prev style="margin:0 0 6px;">Pool shares after staking: —</div>
           <div class="row" style="margin-bottom:6px;"><select data-in="t" ${locked ? 'disabled' : ''} style="flex:1;">${tierSel}</select></div>
           <div class="row" style="display:flex; flex-wrap:nowrap; gap:6px; align-items:stretch;"><input type="text" data-in="s" placeholder="0.0" style="flex:1 1 75%; min-width:0;" /><button class="primary" data-sact="stake" style="flex:0 0 25%; min-width:0; padding-left:4px; padding-right:4px; white-space:nowrap;" ${p.active ? '' : 'disabled'}>Stake</button></div>
-          ${pctBtns('s')}
-          <div class="hint" data-prev>Pool shares after staking: —</div></div>
+          ${pctBtns('s')}</div>
         <div class="field"><label>Unstake LP</label>
+          <div class="hint" style="margin:0 0 6px;">Available after the unlock time.</div>
           <div class="row" style="display:flex; flex-wrap:nowrap; gap:6px; align-items:stretch;"><input type="text" data-in="u" placeholder="0.0" style="flex:1 1 75%; min-width:0;" /><button data-sact="unstake" style="flex:0 0 25%; min-width:0; padding-left:4px; padding-right:4px; white-space:nowrap;">Unstake</button></div>
-          ${pctBtns('u')}
-          <div class="hint">Available after the unlock time. Any LP left in the position is re-valued at 1x (no tier bonus).</div></div>
+          ${pctBtns('u')}</div>
       </div>
       <div style="margin-top:14px;">
         <button class="danger" data-sact="exit" ${hasPos ? '' : 'disabled'} style="width:100%;">Emergency exit</button>
