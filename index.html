@@ -377,9 +377,14 @@ const StakingAddress = "0x8f984096B94104ef45efE4fDfB5D2a77841c259c";            
         <div style="flex:1;">Your staked LP counts toward your pool share, so you earn dividends on it like any other share. Choose which tokens those dividends are paid in on the Reward Tokens tab.</div>
         <button class="small primary" id="stkGoRewards">Set reward tokens</button>
       </div>
-      <div class="lock-note" style="margin-top:10px; align-items:center;">
+      <div class="lock-note" style="margin-top:10px;">
         <span>⚠</span>
-        <div style="flex:1;">Any LP left in the position is re-valued at 1x (no tier bonus).</div>
+        <div style="flex:1; line-height:1.55;">
+          <b>Partial unstake: the LP you leave behind loses its tier bonus.</b>
+          <div style="margin-top:4px;">Your lock bonus only applies while your LP is locked. Once the lock has ended and you unstake part of your position, the LP that stays staked is re-valued at <b>1x</b> (no tier bonus), using the pool's current reserves. Your shares in that pool drop by more than the amount you withdrew.</div>
+          <div style="margin-top:4px;"><i>Example:</i> 1,000 worth of LP staked for 1 year earns +50%, so 1,500 shares. Unstake half, and the 500 left is re-valued at 1x, giving 500 shares instead of 750.</div>
+          <div style="margin-top:4px;">Unstaking does not restart your lock. To earn a bonus on what's left, stake more and pick a tier: your whole position is then re-valued at that tier and the lock restarts. If you withdraw everything, the position simply closes.</div>
+        </div>
       </div>
       <div class="section-title">Your LP pools</div>
       <div id="stkPools"></div>
