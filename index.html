@@ -104,6 +104,9 @@ const StakingAddress = "0x8f984096B94104ef45efE4fDfB5D2a77841c259c";            
   .exit-warn.penalty{ color:#ffd0d0; border-color:rgba(255,92,92,0.45); background:rgba(255,92,92,0.07); }
   .exit-warn.free{ border-color:rgba(120,200,150,0.3); background:rgba(120,200,150,0.05); }
 
+  .stk-toggle{ transition:transform .15s; }
+  .stk-collapsed .stk-toggle{ transform:rotate(-90deg); }
+  .stk-collapsed .stk-body{ display:none; }
   .exit-wrap{ position:relative; margin-top:12px; }
   .exit-wrap .exit-warn{ display:none; position:absolute; left:0; right:0; bottom:calc(100% + 8px); margin-top:0; z-index:30; background:var(--panel-2); box-shadow:0 8px 24px rgba(0,0,0,0.55); }
   .exit-wrap:hover .exit-warn, .exit-wrap:focus-within .exit-warn{ display:block; }
@@ -4015,7 +4018,7 @@ const STK_SETUP = [
   ["Max reserve deviation", "setMaxReserveDeviationBP", "n", "Basis points (max 5000)", "maxReserveDeviationBP"]
 ];
 const STK_PAIR_ABI = [...ERC20_ABI, ...LP_DETECT_ABI];
-let stkPools = [], stkG = {}, stkAuth = false, stkOwn = false, stkTiers = [];
+let stkCardOpen = new Map(), stkPools = [], stkG = {}, stkAuth = false, stkOwn = false, stkTiers = [];
 const sx = id => document.getElementById(id);
 const stkW = () => new ethers.Contract(StakingAddress, STAKING_ABI, signer);
 function stkFillCurrent(){
@@ -4075,14 +4078,15 @@ function renderStaking(){
       : penalised
         ? `<div class="exit-warn penalty"><b>Warning:</b> your lock has not ended. Exiting now closes your <b>whole position</b>, takes a <b>${Number(g.penBP) / 100}% penalty</b> (${fmt(feeLp, p.dec)} LP goes to the dev address) and <b>forfeits all your pending rewards</b>. You would get back ${fmt(p.staked - feeLp, p.dec)} LP. Wait until the unlock time to exit with no penalty.</div>`
         : `<div class="exit-warn free">No penalty applies${g.pen ? ' because your lock has ended' : ' right now'}. Exiting closes your whole position, returns all ${fmt(p.staked, p.dec)} LP and pays out your pending rewards.</div>`;
-    return `<div class="card" data-lp="${p.lp}">
-      <h3 style="display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px;"><span style="display:inline-flex; align-items:center; gap:8px;">${p.name}<span style="display:inline-flex; align-items:center; gap:4px;"><span class="mono-cell truncaddr" style="font-size:12px; font-weight:400;" data-copy="${p.lp}" title="${p.lp}">${short(p.lp)}</span>${copyIconHtml(p.lp)}</span></span><span class="badge ${p.active ? 'ok' : 'warn'}">${p.active ? 'Active' : 'New stakes paused'}</span></h3>
+    return `<div class="card ${(stkCardOpen.has(p.lp) ? stkCardOpen.get(p.lp) : p.staked > 0n) ? '' : 'stk-collapsed'}" data-lp="${p.lp}">
+      <h3 style="display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px;"><span style="display:inline-flex; align-items:center; gap:8px;">${p.name}<span style="display:inline-flex; align-items:center; gap:4px;"><span class="mono-cell truncaddr" style="font-size:12px; font-weight:400;" data-copy="${p.lp}" title="${p.lp}">${short(p.lp)}</span>${copyIconHtml(p.lp)}</span></span><span class="badge ${p.active ? 'ok' : 'warn'}">${p.active ? 'Active' : 'New stakes paused'}</span><button class="small stk-toggle" data-sact="toggle" title="Collapse / expand" style="margin-left:auto;">▾</button></h3>
       <div class="grid cols-4">
         <div class="stat small"><div class="label">Wallet LP</div><div class="value">${fmt(p.bal, p.dec)}</div></div>
         <div class="stat small"><div class="label">Staked LP</div><div class="value">${fmt(p.staked, p.dec)}</div></div>
         <div class="stat small"><div class="label">Shares</div><div class="value">${fmt(p.shares, g.dec)} ${g.sym}</div></div>
         <div class="stat small"><div class="label">Unlocks</div><div class="value">${lk}</div></div>
       </div>
+      <div class="stk-body">
       <div class="hint" style="margin-top:8px;">${tierNote}</div>
       <div class="grid cols-2" style="margin-top:14px;">
         <div class="field"><label>Stake LP</label>
@@ -4098,6 +4102,7 @@ function renderStaking(){
             <button class="danger" data-sact="exit" ${hasPos ? '' : 'disabled'} style="width:100%;">Emergency exit</button>
             ${exitWarn}
           </div></div>
+      </div>
       </div>
       </div>`;
   }).join('') || '<div class="card"><div class="muted">No LP pools have been added yet.</div></div>';
@@ -4208,7 +4213,10 @@ async function stkAdminRun(btn){
 sx('view-staking').addEventListener('click', e => {
   const b = e.target.closest('[data-sact]'); if (!b) return;
   const card = b.closest('[data-lp]'), p = card && stkPools.find(x => x.lp === card.dataset.lp), a = b.dataset.sact;
-  if (a === 'pct'){
+  if (a === 'toggle'){
+    const closed = card.classList.toggle('stk-collapsed');
+    stkCardOpen.set(card.dataset.lp, !closed);
+  } else if (a === 'pct'){
     const i = card.querySelector(`[data-in=${b.dataset.t}]`), base = b.dataset.t === 's' ? p.bal : p.staked, pct = BigInt(b.dataset.pct);
     i.value = ethers.formatUnits(pct === 100n ? base : base * pct / 100n, p.dec);
     i.dispatchEvent(new Event('input', { bubbles: true }));
