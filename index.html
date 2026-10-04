@@ -5,7 +5,7 @@
 <script>
 /* ===== CONTRACT ADDRESSES: set both of these before deploying the site ===== */
 const RewardAddress  = "0xD587f1207ca879E0ABA142755b6F7d5D5626cc5B"; // reward / dividend distributor
-const StakingAddress = "0x8f984096B94104ef45efE4fDfB5D2a77841c259c";                                          // LP staking contract
+const StakingAddress = "0x34B2b336E234019512Ab6bF5d60822CDe3F2eafc";                                          // LP staking contract
 /* =========================================================================== */
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -4061,8 +4061,7 @@ function renderStaking(){
         ? `<div class="exit-warn penalty"><b>Warning:</b> your lock has not ended. Exiting now closes your <b>whole position</b>, takes a <b>${Number(g.penBP) / 100}% penalty</b> (${fmt(feeLp, p.dec)} LP goes to the dev address) and <b>forfeits all your pending rewards</b>. You would get back ${fmt(p.staked - feeLp, p.dec)} LP. Wait until the unlock time to exit with no penalty.</div>`
         : `<div class="exit-warn free">No penalty applies${g.pen ? ' because your lock has ended' : ' right now'}. Exiting closes your whole position, returns all ${fmt(p.staked, p.dec)} LP and pays out your pending rewards.</div>`;
     return `<div class="card" data-lp="${p.lp}">
-      <h3>${p.name} ${stkAuth ? `<span class="mono-cell">#${p.idx}</span> ` : ''}<span class="badge ${p.active ? 'ok' : 'warn'}">${p.active ? 'Active' : 'New stakes paused'}</span></h3>
-      <p class="sub"><span class="mono-cell truncaddr" data-copy="${p.lp}">${p.lp}</span></p>
+      <h3 style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">${p.name} ${stkAuth ? `<span class="mono-cell">#${p.idx}</span>` : ''}<span class="mono-cell truncaddr" style="font-size:12px; font-weight:400;" data-copy="${p.lp}" title="${p.lp}">${short(p.lp)}</span>${copyIconHtml(p.lp)}<span class="badge ${p.active ? 'ok' : 'warn'}">${p.active ? 'Active' : 'New stakes paused'}</span></h3>
       <div class="grid cols-4">
         <div class="stat small"><div class="label">Wallet LP</div><div class="value">${fmt(p.bal, p.dec)}</div></div>
         <div class="stat small"><div class="label">Staked LP</div><div class="value">${fmt(p.staked, p.dec)}</div></div>
@@ -4080,8 +4079,8 @@ function renderStaking(){
         <div class="field"><label>Unstake LP</label>
           <div class="row"><input type="text" data-in="u" placeholder="0.0" style="flex:1;" /></div>
           ${pctBtns('u')}
-          <div class="hint">Available after the unlock time. Any LP left in the position is re-valued at 1x (no tier bonus).</div>
-          <button data-sact="unstake">Unstake</button></div>
+          <button data-sact="unstake" style="margin-top:6px;">Unstake</button>
+          <div class="hint">Available after the unlock time. Any LP left in the position is re-valued at 1x (no tier bonus).</div></div>
       </div>
       <div style="margin-top:14px;">
         <button class="danger" data-sact="exit" ${hasPos ? '' : 'disabled'} style="width:100%;">Emergency exit</button>
