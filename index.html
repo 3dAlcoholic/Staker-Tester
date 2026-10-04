@@ -4072,14 +4072,12 @@ function renderStaking(){
       <div class="grid cols-2" style="margin-top:14px;">
         <div class="field"><label>Stake LP</label>
           <div class="row" style="margin-bottom:6px;"><select data-in="t" ${locked ? 'disabled' : ''} style="flex:1;">${tierSel}</select></div>
-          <div class="row"><input type="text" data-in="s" placeholder="0.0" style="flex:1;" /></div>
+          <div class="row" style="display:flex; flex-wrap:nowrap; gap:6px; align-items:stretch;"><input type="text" data-in="s" placeholder="0.0" style="flex:1 1 75%; min-width:0;" /><button class="primary" data-sact="stake" style="flex:0 0 25%; min-width:0; padding-left:4px; padding-right:4px; white-space:nowrap;" ${p.active ? '' : 'disabled'}>Stake</button></div>
           ${pctBtns('s')}
-          <div class="hint" data-prev>Pool shares after staking: —</div>
-          <button class="primary" data-sact="stake" ${p.active ? '' : 'disabled'}>Stake</button></div>
+          <div class="hint" data-prev>Pool shares after staking: —</div></div>
         <div class="field"><label>Unstake LP</label>
-          <div class="row"><input type="text" data-in="u" placeholder="0.0" style="flex:1;" /></div>
+          <div class="row" style="display:flex; flex-wrap:nowrap; gap:6px; align-items:stretch;"><input type="text" data-in="u" placeholder="0.0" style="flex:1 1 75%; min-width:0;" /><button data-sact="unstake" style="flex:0 0 25%; min-width:0; padding-left:4px; padding-right:4px; white-space:nowrap;">Unstake</button></div>
           ${pctBtns('u')}
-          <button data-sact="unstake" style="margin-top:6px;">Unstake</button>
           <div class="hint">Available after the unlock time. Any LP left in the position is re-valued at 1x (no tier bonus).</div></div>
       </div>
       <div style="margin-top:14px;">
@@ -4130,15 +4128,34 @@ function stkAmt(card, k, p){
   try{ const v = ethers.parseUnits(card.querySelector(`[data-in=${k}]`).value.trim() || '0', p.dec); if (v > 0n) return v; }catch(e){}
   toast('Enter a valid amount', 'err');
 }
+// The stake button reads "Approve" while the LP allowance for the staking contract
+// is lower than the amount typed, and "Stake" once it covers it.
+function stkUpdateStakeBtn(card){
+  const p = stkPools.find(x => x.lp === card.dataset.lp), btn = card.querySelector('[data-sact="stake"]');
+  if (!p || !btn) return;
+  let amt = 0n;
+  try{ amt = ethers.parseUnits(card.querySelector('[data-in=s]').value.trim() || '0', p.dec); }catch(e){}
+  btn.textContent = (amt > 0n && p.allow < amt) ? 'Approve' : 'Stake';
+}
 async function stkStake(p, card){
   const v = stkAmt(card, 's', p); if (!v) return;
   if (v > p.bal){ toast('Amount is more than your wallet balance', 'err'); return; }
+  const btn = card.querySelector('[data-sact="stake"]');
+  btn.disabled = true;
   try{
-    if (p.allow < v) await sendTx(() => new ethers.Contract(p.lp, ERC20_ABI, signer).approve(StakingAddress, v), 'Approve LP');
-    const tier = Number(card.querySelector('[data-in=t]').value);
-    await sendTx(() => stkW().stake(p.lp, v, tier), 'Stake LP');
-    await Promise.allSettled([loadStaking(), loadDashboard()]);
+    if (p.allow < v){
+      // Step 1: approve only. The button switches to "Stake" once it is confirmed.
+      await sendTx(() => new ethers.Contract(p.lp, ERC20_ABI, signer).approve(StakingAddress, v), 'Approve LP');
+      p.allow = await new ethers.Contract(p.lp, ERC20_ABI, provider).allowance(userAddress, StakingAddress);
+      stkUpdateStakeBtn(card);
+    } else {
+      const tier = Number(card.querySelector('[data-in=t]').value);
+      await sendTx(() => stkW().stake(p.lp, v, tier), 'Stake LP');
+      await Promise.allSettled([loadStaking(), loadDashboard()]);
+      return;
+    }
   }catch(e){}
+  if (btn.isConnected && p.active) btn.disabled = false;
 }
 async function stkUnstake(p, card){
   const v = stkAmt(card, 'u', p); if (!v) return;
@@ -4193,7 +4210,7 @@ async function stkPreview(card){
     o.textContent = `Pool shares after staking: ${fmt(r[0], stkG.dec)} ${stkG.sym} (now ${fmt(r[1], stkG.dec)})`;
   }catch(err){ o.textContent = 'Pool shares after staking: —'; }
 }
-sx('view-staking').addEventListener('input', e => { if (e.target.dataset.in === 's') stkPreview(e.target.closest('[data-lp]')); });
+sx('view-staking').addEventListener('input', e => { if (e.target.dataset.in === 's'){ const c = e.target.closest('[data-lp]'); stkPreview(c); stkUpdateStakeBtn(c); } });
 sx('view-staking').addEventListener('change', e => { if (e.target.dataset.in === 't') stkPreview(e.target.closest('[data-lp]')); });
 sx('stkGoRewards').addEventListener('click', () => document.querySelector('.tab[data-tab="rewards"]').click());
 sx('adminStakingPane').addEventListener('click', e => { const b = e.target.closest('[data-sact="admin"]'); if (b) stkAdminRun(b); });
