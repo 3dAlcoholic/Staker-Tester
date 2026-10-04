@@ -4,8 +4,8 @@
 <meta charset="UTF-8" />
 <script>
 /* ===== CONTRACT ADDRESSES: set both of these before deploying the site ===== */
-const RewardAddress  = "0x10387dC7bB459e79d1432a6B563c9CfC3de6Af8B"; // reward / dividend distributor
-const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";                                          // LP staking contract
+const RewardAddress  = "0xD587f1207ca879E0ABA142755b6F7d5D5626cc5B"; // reward / dividend distributor
+const StakingAddress = "0x34B2b336E234019512Ab6bF5d60822CDe3F2eafc";                                          // LP staking contract
 /* =========================================================================== */
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -366,6 +366,7 @@ const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";            
     </div>
     <div id="stkContent" style="display:none;">
       <div class="grid cols-4" id="stkStats"></div>
+      <div class="hint" id="stkTierInfo" style="margin-top:10px;"></div>
       <div class="lock-note" style="margin-top:16px; align-items:center;">
         <span>ℹ</span>
         <div style="flex:1;">Your staked LP counts toward your pool share, so you earn dividends on it like any other share. Choose which tokens those dividends are paid in on the Reward Tokens tab.</div>
@@ -507,11 +508,11 @@ const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";            
     <div class="section-title">Distribution</div>
     <div class="grid cols-2">
       <div class="card">
-        <h3>Deposit PLS</h3>
-        <p class="sub">Accrues dividends across all current shareholders.</p>
+        <h3>Send PLS</h3>
+        <p class="sub">Sends PLS straight to the contract, which accrues it as dividends across all current shareholders. Fails if nobody holds shares yet.</p>
         <div class="row">
           <div class="field"><label>Amount (PLS)</label><input type="text" id="depositAmt" placeholder="0.0" /></div>
-          <button class="primary" id="depositBtn" style="align-self:flex-end;">deposit()</button>
+          <button class="primary" id="depositBtn" style="align-self:flex-end;">send PLS</button>
         </div>
       </div>
 
@@ -531,17 +532,6 @@ const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";            
           <div class="field"><label>Min distribution (wei)</label><input type="text" id="minDistInput" /></div>
         </div>
         <button class="primary" id="setCriteriaBtn" style="margin-top:10px;">setDistributionCriteria()</button>
-      </div>
-
-      <div class="card">
-        <h3>Minimum share requirement</h3>
-        <div class="row">
-          <label class="row" style="gap:8px; cursor:pointer;"><input type="checkbox" id="restrictMinToggle" style="width:16px;height:16px;" /> Restrict by minimum shares</label>
-        </div>
-        <div class="row" style="margin-top:10px;">
-          <div class="field"><label>Minimum (whole tokens)</label><input type="text" id="minSharesInput" placeholder="e.g. 1000000000000" /></div>
-          <button class="primary" id="setMinSharesBtn" style="align-self:flex-end;">Update</button>
-        </div>
       </div>
 
       <div class="card" style="grid-column:1 / -1;">
@@ -576,7 +566,7 @@ const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";            
 
       <div class="card" style="grid-column:1 / -1;">
         <h3>Recent deposits <span class="badge" id="recentDepositsCountBadge">—</span></h3>
-        <p class="sub">Every deposit() call that landed PLS on this contract in the last 2 days — direct (top-level, e.g. the button above) and internal (nested inside someone else's transaction, e.g. a held token's fee-on-transfer redirect). The internal kind is exactly what coin-balance-history and the old 24h stat used to miss.</p>
+        <p class="sub">Every deposit that landed PLS on this contract in the last 2 days — direct (top-level, e.g. the button above) and internal (nested inside someone else's transaction, e.g. a held token's fee-on-transfer redirect). The internal kind is exactly what coin-balance-history and the old 24h stat used to miss.</p>
         <div class="row" style="margin-bottom:10px; align-items:center;">
           <button class="small" id="refreshRecentDepositsBtn">Refresh</button>
           <span class="hint" id="recentDepositsStatus" style="margin-left:auto;"></span>
@@ -612,6 +602,16 @@ const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";            
           <div class="field"><label>Amount (tokens)</label><input type="text" id="setManualAmt" placeholder="e.g. 5000" /></div>
         </div>
         <button class="primary" id="setManualBtn" style="margin-top:10px;">setManual_Share_Override()</button>
+      </div>
+      <div class="card" style="grid-column:1 / -1;">
+        <h3>Forfeit share</h3>
+        <p class="sub">Sets the holder's share to the new amount (0 removes them) and sends their pending PLS to the address below instead of paying them. Pending rewards are tracked per address, not per pool, so this forfeits everything they have accrued. If the payout can't be sent, the share change still goes through and the PLS stays in the contract. The LP staking contract calls this on a penalised emergency exit.</p>
+        <div class="row">
+          <div class="field"><label>Shareholder</label><input type="text" id="forfeitAddr" placeholder="0x..." /></div>
+          <div class="field"><label>New share amount (tokens)</label><input type="text" id="forfeitAmt" placeholder="0 removes them" /></div>
+          <div class="field"><label>Send pending PLS to</label><input type="text" id="forfeitTo" placeholder="0x..." /></div>
+        </div>
+        <button class="primary" id="forfeitBtn" style="margin-top:10px;">forfeitShare()</button>
       </div>
     </div>
 
@@ -749,24 +749,10 @@ const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";            
       </div>
     </div>
 
-    <div class="section-title">Import from another share contract</div>
-    <div class="card">
-      <h3>Import from another share contract</h3>
-      <div class="row">
-        <div class="field"><label>Source contract address</label><input type="text" id="sourceContractAddr" placeholder="0x..." /></div>
-        <button class="primary" id="setSourceBtn" style="align-self:flex-end;">setShareContract()</button>
-      </div>
-      <div class="row" style="margin-top:10px;">
-        <div class="field"><label>Batch size</label><input type="text" id="importBatchSize" placeholder="e.g. 200" /></div>
-        <button class="primary" id="importBatchBtn" style="align-self:flex-end;">batchImportFromSource()</button>
-      </div>
-      <div class="hint" id="importStatus"></div>
-    </div>
-
     <div class="section-title">Reset distro (run in order)</div>
     <div class="card">
       <h3>Reset distro (run in order)</h3>
-      <div class="lock-note" style="margin-bottom:14px;"><span>⚠</span><div>Destructive, staged tools for re-running or wiping a distribution. Run in the numbered order: batch reset → wipe totals → clear shares → reset import cursor.</div></div>
+      <div class="lock-note" style="margin-bottom:14px;"><span>⚠</span><div>Destructive, staged tools for re-running or wiping a distribution. Run in the numbered order: batch reset → wipe totals → clear shares.</div></div>
       <div class="row">
         <div class="field"><label>1. Batch size</label><input type="text" id="resetBatchSize" placeholder="e.g. 200" /></div>
         <button class="danger" id="resetBatchBtn" style="align-self:flex-end;">resetDistro_ShareholdersBatch()</button>
@@ -774,7 +760,6 @@ const StakingAddress = "0xEcac95FF4DCf683B3d9c5d5De1730263855a7F2c";            
       <div class="row" style="margin-top:10px;">
         <button class="danger" id="resetTotalsBtn">2. resetDistro_AllTotals()</button>
         <button class="danger" id="resetSharesBtn">3. resetDistro_Shares()</button>
-        <button class="danger" id="resetImportBtn">4. resetImport()</button>
       </div>
       <div class="hint" id="resetProgress"></div>
     </div>
@@ -839,11 +824,6 @@ const ABI = [
   "function dividendsPerShare() view returns (uint256)",
   "function minPeriod() view returns (uint256)",
   "function minDistribution() view returns (uint256)",
-  "function restrictMinimumShares() view returns (bool)",
-  "function minimumSharesRequired() view returns (uint256)",
-  "function shareContract() view returns (address)",
-  "function importIndex() view returns (uint256)",
-  "function importComplete() view returns (bool)",
   "function resetIndex() view returns (uint256)",
   "function shareholders(uint256) view returns (address)",
   "function shareholderClaims(address) view returns (uint256)",
@@ -913,13 +893,12 @@ const ABI = [
   // shares
   "function getAllShares() view returns (tuple(address shareholder,uint256 amount,uint256 totalExcluded,uint256 totalRealised)[])",
   "function setDistributionCriteria(uint256 _minPeriod, uint256 _minDistribution)",
-  "function setMinimumSharesRequired(bool _enabled, uint256 _minimum)",
   "function setManual_Share_Override(address shareholder, uint256 amount)",
   "function setShare(address shareholder, uint256 amount)",
+  "function forfeitShare(address shareholder, uint256 newAmount, address to)",
   "function getShareholderCount() view returns (uint256)",
 
   // deposits / processing / claim
-  "function deposit() payable",
   "function manualTokenDeposit(address token, uint256 amount)",
   "function setDepositRouter_VRouter(uint256 index)",
   "function depositRouterIndex() view returns (uint256)",
@@ -927,13 +906,10 @@ const ABI = [
   "function process(uint256 gas)",
   "function Mail_Box_Money()",
 
-  // reset / import
+  // reset
   "function resetDistro_ShareholdersBatch(uint256 count)",
   "function resetDistro_AllTotals()",
   "function resetDistro_Shares()",
-  "function resetImport()",
-  "function setshareContract(address _source)",
-  "function batchImportFromSource(uint256 batchSize)",
 
   // frontend info
   // NOTE: name()/decimals() lookups were dropped from userInfo() — the
@@ -957,8 +933,7 @@ const ABI = [
   "event TokenActiveStatusChanged(address indexed account, address indexed token, bool active)",
   "event MaxActiveTokensUpdated(uint256 newMax)",
   "event MaxTokensPerUserUpdated(uint256 newMax)",
-  "event ImportProgress(uint256 currentIndex, uint256 remaining)",
-  "event ImportCompleted(uint256 totalImported)",
+  "event ShareForfeited(address indexed shareholder, address indexed to, uint256 amountSent)",
   "event DistributionReverted(address indexed shareholder)",
   "event DistributionDelayUpdated(address indexed shareholder, uint256 delaySeconds)",
   "event ResetProgress(uint256 currentIndex, uint256 total)",
@@ -1354,11 +1329,11 @@ function fmtYieldPct(totalRealisedUsd, holdingUsd){
 // then immediately pays shareholders out). Net delta in that case is
 // ~0, even though a real deposit happened.
 //
-// This contract has no receive()/fallback() — deposit() is the only
-// payable entry point — so ANY incoming value to RewardAddress,
-// whether top-level or nested inside someone else's transaction, is
-// guaranteed to be a real deposit() call. No calldata/selector check
-// needed to tell deposits apart from anything else.
+// The only payable entry point on this contract is receive() (plain PLS
+// transfers, accrued as dividends) — deposit() no longer exists — so ANY
+// incoming value to RewardAddress, whether top-level or nested inside
+// someone else's transaction, is a real deposit. No calldata/selector
+// check needed to tell deposits apart from anything else.
 // ---------------------------------------------------------------
 
 // Generic Blockscout v2 paginator. Walks `items` newest-first,
@@ -1431,12 +1406,12 @@ const INTERNAL_TX_MAX_PAGES = 150;
 // RewardAddress within the last `windowSeconds`, merging two
 // Blockscout sources:
 //  - top-level transactions directly TO the contract (e.g. the admin
-//    panel's "Deposit PLS" button) — value sits at the top level.
+//    panel's "Send PLS" button) — value sits at the top level.
 //  - internal transactions TO the contract (nested inside someone
 //    else's call, e.g. a held token's fee-redirect firing mid-swap) —
 //    invisible in the top-level tx list and in coin-balance-history.
 // No dedup is needed: Blockscout's internal-transactions listing
-// excludes the top-level call frame itself, so a direct deposit()
+// excludes the top-level call frame itself, so a direct deposit
 // never appears in both lists.
 // Returns {deposits, truncated, failed}. deposits is newest-first:
 // [{hash, from, valueWei, timestamp, kind}], kind is 'direct' or
@@ -3312,10 +3287,9 @@ async function loadAdminTab(){
   if (!isAuthd || !contractRead) return;
 
   try{
-    const [totalShares, totalDiv, totalDist, minPeriod, minDist, restrictMin, minShares, shareholderCount, maxActive, maxTotal] = await Promise.all([
+    const [totalShares, totalDiv, totalDist, minPeriod, minDist, shareholderCount, maxActive, maxTotal] = await Promise.all([
       contractRead.totalShares(), contractRead.totalDividends(), contractRead.totalDistributed(),
-      contractRead.minPeriod(), contractRead.minDistribution(), contractRead.restrictMinimumShares(),
-      contractRead.minimumSharesRequired(), contractRead.getShareholderCount(),
+      contractRead.minPeriod(), contractRead.minDistribution(), contractRead.getShareholderCount(),
       contractRead.maxActiveTokens(), contractRead.maxTokensPerUser()
     ]);
     document.getElementById('maxActiveTokensInput').value = maxActive.toString();
@@ -3330,8 +3304,6 @@ async function loadAdminTab(){
 
     document.getElementById('minPeriodInput').value = minPeriod.toString();
     document.getElementById('minDistInput').value = minDist.toString();
-    document.getElementById('restrictMinToggle').checked = restrictMin;
-    document.getElementById('minSharesInput').value = ethers.formatUnits(minShares, 18);
     document.getElementById('shareholderCountBadge').textContent = shareholderCount.toString();
 
     await populateRouterSelect(document.getElementById('ovAddRouter'));
@@ -3496,7 +3468,7 @@ async function loadAdminRoutersTable(){
 document.getElementById('depositBtn').addEventListener('click', async ()=>{
   const amt = document.getElementById('depositAmt').value.trim();
   if (!amt || isNaN(Number(amt))){ toast('Enter a PLS amount', 'err'); return; }
-  try{ await sendTx(()=>contract.deposit({value: ethers.parseEther(amt)}), 'Deposit PLS'); await loadAdminTab(); }catch(e){}
+  try{ await sendTx(()=>signer.sendTransaction({to: RewardAddress, value: ethers.parseEther(amt)}), 'Send PLS'); await loadAdminTab(); }catch(e){}
 });
 document.getElementById('refreshRecentDepositsBtn').addEventListener('click', async ()=>{
   await loadRecentDepositsTable();
@@ -3590,17 +3562,6 @@ document.getElementById('setCriteriaBtn').addEventListener('click', async ()=>{
   const d = document.getElementById('minDistInput').value.trim();
   if (p==='' || d===''){ toast('Fill both fields', 'err'); return; }
   try{ await sendTx(()=>contract.setDistributionCriteria(BigInt(p), BigInt(d)), 'Set distribution criteria'); await loadAdminTab(); }catch(e){}
-});
-document.getElementById('restrictMinToggle').addEventListener('change', async (e)=>{
-  const v = document.getElementById('minSharesInput').value.trim();
-  const minVal = v==='' ? 0n : BigInt(Math.floor(Number(v)));
-  try{ await sendTx(()=>contract.setMinimumSharesRequired(e.target.checked, minVal), 'Toggle minimum share restriction'); }catch(err){ e.target.checked = !e.target.checked; }
-});
-document.getElementById('setMinSharesBtn').addEventListener('click', async ()=>{
-  const v = document.getElementById('minSharesInput').value.trim();
-  if (v===''){ toast('Enter a whole-token amount', 'err'); return; }
-  const enabled = document.getElementById('restrictMinToggle').checked;
-  try{ await sendTx(()=>contract.setMinimumSharesRequired(enabled, BigInt(Math.floor(Number(v)))), 'Set minimum shares'); await loadAdminTab(); }catch(e){}
 });
 document.getElementById('setMaxActiveTokensBtn').addEventListener('click', async ()=>{
   const v = document.getElementById('maxActiveTokensInput').value.trim();
@@ -3910,21 +3871,16 @@ document.getElementById('setDepositRouterBtn').addEventListener('click', async (
   }catch(e){}
 });
 
-/* -- import -- */
-document.getElementById('setSourceBtn').addEventListener('click', async ()=>{
-  const addr = document.getElementById('sourceContractAddr').value.trim();
-  if (!isAddr(addr)){ toast('Enter a valid contract address', 'err'); return; }
-  try{ await sendTx(()=>contract.setshareContract(addr), 'Set source contract'); }catch(e){}
-});
-document.getElementById('importBatchBtn').addEventListener('click', async ()=>{
-  const v = document.getElementById('importBatchSize').value.trim();
-  if (v==='' || isNaN(Number(v))){ toast('Enter a batch size', 'err'); return; }
-  try{
-    await sendTx(()=>contract.batchImportFromSource(BigInt(v)), 'Import batch');
-    const idx = await contractRead.importIndex();
-    const done = await contractRead.importComplete();
-    document.getElementById('importStatus').textContent = done ? 'Import complete.' : `Progress: index ${idx}`;
-  }catch(e){}
+/* -- forfeit -- */
+document.getElementById('forfeitBtn').addEventListener('click', async ()=>{
+  const addr = document.getElementById('forfeitAddr').value.trim();
+  const amtInput = document.getElementById('forfeitAmt').value.trim();
+  const to = document.getElementById('forfeitTo').value.trim();
+  if(!isAddr(addr) || !isAddr(to) || amtInput===''){ toast('Enter a shareholder, a new share amount and a destination address', 'err'); return; }
+  let amt;
+  try{ amt = parseTokenAmount(amtInput); }catch(e){ toast(e.message, 'err'); return; }
+  if (!confirm('Forfeit ALL pending rewards for this holder and send them to ' + to + '?')) return;
+  try{ await sendTx(()=>contract.forfeitShare(addr, amt, to), 'Forfeit share'); }catch(e){}
 });
 
 /* -- reset distro -- */
@@ -3944,13 +3900,6 @@ document.getElementById('resetTotalsBtn').addEventListener('click', async ()=>{
 document.getElementById('resetSharesBtn').addEventListener('click', async ()=>{
   if (!confirm('This wipes every shareholder record back to empty. Are you sure?')) return;
   try{ await sendTx(()=>contract.resetDistro_Shares(), 'Reset shares (full wipe)'); await loadAdminTab(); }catch(e){}
-});
-document.getElementById('resetImportBtn').addEventListener('click', async ()=>{
-  if (!confirm('Reset the import cursor so a new import can be run? Steps 1-3 should already be complete.')) return;
-  try{
-    await sendTx(()=>contract.resetImport(), 'Reset import cursor');
-    document.getElementById('resetProgress').textContent = 'Import cursor reset — ready for a new import.';
-  }catch(e){}
 });
 
 /* -- recovery -- */
@@ -4006,18 +3955,22 @@ const STAKING_ABI = [
   "function projectToken() view returns (address)",
   "function rewardDistributor() view returns (address)",
   "function setProjectToken(address)",
-  "function lockPeriod() view returns (uint256)",
+  "function devAddress() view returns (address)",
+  "function rewardPenalty() view returns (bool)",
+  "function EMERGENCY_PENALTY_BP() view returns (uint256)",
+  "function getTier(uint8) view returns (uint256 duration,uint256 multiplierBP)",
   "function maxReserveDeviationBP() view returns (uint256)",
   "function lpInfo(address) view returns (bool exists,bool active,bool projectIsToken0,uint256 lastRatio)",
   "function getLPList() view returns (address[])",
   "function userTotalShares(address) view returns (uint256)",
-  "function getUserStake(address,address) view returns (uint256 lpAmount,uint256 shareAmount,uint256 unlockTime)",
-  "function previewShareAmount(address,uint256) view returns (uint256)",
+  "function getUserStake(address,address) view returns (uint256 lpAmount,uint256 shareAmount,uint256 unlockTime,uint8 tier)",
+  "function previewShareAmount(address,uint256,uint8) view returns (uint256)",
+  "function previewStake(address,address,uint256,uint8) view returns (uint256 newPoolShares,uint256 currentPoolShares)",
   "function isOwner(address) view returns (bool)",
   "function isAuthorized(address) view returns (bool)",
-  "function stake(address,uint256)", "function unstake(address,uint256)",
+  "function stake(address,uint256,uint8)", "function unstake(address,uint256)", "function emergencyExit(address)",
   "function addLP(address)", "function removeLP(address)", "function reactivateLP(address)", "function forceSyncReserves(address)",
-  "function setRewardDistributor(address)", "function setLockPeriod(uint256)", "function setMaxReserveDeviationBP(uint256)",
+  "function setRewardDistributor(address)", "function setDevAddress(address)", "function setRewardPenalty(bool)", "function setMaxReserveDeviationBP(uint256)",
   "function recoverLostTokens(address,address)",
   "function authorize(address)", "function warningRevokeAuthorization(address)", "function warningTransferOwnership(address)"
 ];
@@ -4032,24 +3985,28 @@ const STK_ADMIN = [
   ["Revoke authorization", "warningRevokeAuthorization", [["Address", "a"]], 1],
   ["Transfer ownership", "warningTransferOwnership", [["New owner", "a"]], 1]
 ];
-// [title, function, type a=address n=number, placeholder, key for the "current value" line]
+// [title, function, type a=address n=number b=true/false, placeholder, key for the "current value" line]
 const STK_SETUP = [
   ["Project token", "setProjectToken", "a", "Project token address", "projectToken"],
   ["Reward distributor", "setRewardDistributor", "a", "Reward distributor address", "rewardDistributor"],
-  ["Lock period", "setLockPeriod", "n", "Seconds", "lockPeriod"],
+  ["Dev address (gets the emergency-exit LP fee and forfeited PLS)", "setDevAddress", "a", "Dev address", "devAddress"],
+  ["Reward penalty (early emergency exit costs LP + rewards)", "setRewardPenalty", "b", "", "rewardPenalty"],
   ["Max reserve deviation", "setMaxReserveDeviationBP", "n", "Basis points (max 5000)", "maxReserveDeviationBP"]
 ];
 const STK_PAIR_ABI = [...ERC20_ABI, ...LP_DETECT_ABI];
-let stkPools = [], stkG = {}, stkAuth = false, stkOwn = false;
+let stkPools = [], stkG = {}, stkAuth = false, stkOwn = false, stkTiers = [];
 const sx = id => document.getElementById(id);
 const stkW = () => new ethers.Contract(StakingAddress, STAKING_ABI, signer);
 function stkFillCurrent(){
   const g = stkG, set = (k, v) => { const el = document.querySelector(`[data-cur="${k}"]`); if (el) el.textContent = v; };
   const addr = a => (!a || a === ZERO) ? 'Not set yet' : a;
   set('projectToken', addr(g.pt)); set('rewardDistributor', addr(g.rd));
-  set('lockPeriod', `${g.lock} s (${stkDur(Number(g.lock))})`);
+  set('devAddress', addr(g.devA));
+  set('rewardPenalty', g.pen ? `ON: an early emergency exit costs ${Number(g.penBP) / 100}% of the LP and forfeits rewards` : 'OFF: emergency exits are free and keep rewards');
   set('maxReserveDeviationBP', `${g.dev} bp (${Number(g.dev) / 100}%)` + (Number(g.dev) === 0 ? ', price-move guard is off' : ''));
 }
+function stkTierName(i){ const t = stkTiers[i]; if (!t) return '?'; const d = Math.round(t.dur / 86400); return d === 30 ? '1 month' : d === 90 ? '3 months' : d === 180 ? '6 months' : d === 365 ? '1 year' : stkDur(t.dur); }
+function stkTierLabel(i){ const t = stkTiers[i]; return t ? `${stkTierName(i)} · +${(t.bp - 10000) / 100}% shares` : '?'; }
 function stkDur(s){ s = Math.max(0, Math.floor(s)); const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; }
 
 async function loadStaking(){
@@ -4062,16 +4019,17 @@ async function loadStaking(){
   nw.style.display = 'none'; ct.style.display = '';
   try{
     const c = new ethers.Contract(StakingAddress, STAKING_ABI, provider);
-    const [pt, rd, lock, dev, list, tot, auth, own] = await Promise.all([c.projectToken(), c.rewardDistributor(), c.lockPeriod(), c.maxReserveDeviationBP(), c.getLPList(), c.userTotalShares(userAddress), c.isAuthorized(userAddress), c.isOwner(userAddress)]);
+    const [pt, rd, devA, pen, penBP, tierRaw, dev, list, tot, auth, own] = await Promise.all([c.projectToken(), c.rewardDistributor(), c.devAddress(), c.rewardPenalty(), c.EMERGENCY_PENALTY_BP(), Promise.all([0, 1, 2, 3].map(i => c.getTier(i))), c.maxReserveDeviationBP(), c.getLPList(), c.userTotalShares(userAddress), c.isAuthorized(userAddress), c.isOwner(userAddress)]);
+    stkTiers = tierRaw.map(t => ({ dur: Number(t[0]), bp: Number(t[1]) }));
     const meta = pt === ZERO ? { name: 'TOKEN', decimals: 18 } : await fetchTokenMeta(pt);
     stkAuth = auth; stkOwn = own;
     stkPools = await Promise.all(list.map(async lp => {
       const p = new ethers.Contract(lp, STK_PAIR_ABI, provider), info = await c.lpInfo(lp);
       const [dec, t0, t1, bal, allow, s] = await Promise.all([p.decimals(), p.token0(), p.token1(), p.balanceOf(userAddress), p.allowance(userAddress, StakingAddress), c.getUserStake(userAddress, lp)]);
       const sy = await Promise.all([t0, t1].map(t => fetchTokenMeta(t).then(m => m.name)));
-      return { lp, dec: Number(dec), name: sy.join('/'), active: info.active, ratio: info.lastRatio, bal, allow, staked: s.lpAmount, shares: s.shareAmount, unlock: Number(s.unlockTime) };
+      return { lp, dec: Number(dec), name: sy.join('/'), active: info.active, ratio: info.lastRatio, bal, allow, staked: s.lpAmount, shares: s.shareAmount, unlock: Number(s.unlockTime), tier: Number(s.tier) };
     }));
-    stkG = { pt, rd, lock, dev, tot, sym: meta.name, dec: meta.decimals };
+    stkG = { pt, rd, devA, pen, penBP, dev, tot, sym: meta.name, dec: meta.decimals };
     renderStaking();
   }catch(e){ console.error(e); toast('Could not load LP staking — check StakingAddress', 'err'); }
 }
@@ -4079,10 +4037,15 @@ async function loadStaking(){
 function renderStaking(){
   const g = stkG, stat = (l, v, f) => `<div class="stat"><div class="label">${l}</div><div class="value">${v}</div><div class="foot">${f}</div></div>`;
   const stakedPools = stkPools.filter(p => p.staked > 0n).length;
-  sx('stkStats').innerHTML = stat('Shares from staking', fmt(g.tot, g.dec), g.sym) + stat('Pools staked in', `${stakedPools} / ${stkPools.length}`, 'whitelisted LP pools') + stat('Lock period', stkDur(Number(g.lock)), 'resets when you add to a stake') + stat('Max reserve deviation', (Number(g.dev) / 100) + '%', 'stakes revert if price moves more');
+  sx('stkStats').innerHTML = stat('Shares from staking', fmt(g.tot, g.dec), g.sym) + stat('Pools staked in', `${stakedPools} / ${stkPools.length}`, 'whitelisted LP pools') + stat('Early exit penalty', g.pen ? `${Number(g.penBP) / 100}% + rewards` : 'Off', g.pen ? 'emergency exit before unlock' : 'emergency exits are free') + stat('Max reserve deviation', (Number(g.dev) / 100) + '%', 'stakes revert if price moves more');
+  sx('stkTierInfo').textContent = 'Lock tiers: ' + stkTiers.map((t, i) => stkTierLabel(i)).join(' · ') + '. Longer locks earn more shares per LP. Unstaking is only possible after your unlock time. Adding to a locked position keeps its tier, re-values the whole position at current reserves and restarts the lock.';
   const now = Date.now() / 1000;
   sx('stkPools').innerHTML = stkPools.map(p => {
+    const locked = p.staked > 0n && p.unlock > now;
     const lk = p.staked > 0n ? (p.unlock > now ? 'in ' + stkDur(p.unlock - now) : 'Unlocked') : '—';
+    const tierSel = stkTiers.map((t, i) => `<option value="${i}" ${i === (p.staked > 0n ? p.tier : 0) ? 'selected' : ''}>${stkTierLabel(i)}</option>`).join('');
+    const tierNote = p.staked > 0n ? `Lock tier: ${stkTierLabel(p.tier)}${locked ? ' (locked in until unlock)' : ' (lock ended, you can pick a new tier)'}` : 'No position yet';
+    const exitNote = (g.pen && locked) ? `Closes the whole position now. ${Number(g.penBP) / 100}% of your LP goes to the dev address and your pending rewards are forfeited.` : 'Closes the whole position now. You get all your LP back and your rewards are paid out.';
     return `<div class="card" data-lp="${p.lp}">
       <h3>${p.name} <span class="badge ${p.active ? 'ok' : 'warn'}">${p.active ? 'Active' : 'New stakes paused'}</span></h3>
       <p class="sub"><span class="mono-cell truncaddr" data-copy="${p.lp}">${p.lp}</span></p>
@@ -4092,16 +4055,20 @@ function renderStaking(){
         <div class="stat small"><div class="label">Shares</div><div class="value">${fmt(p.shares, g.dec)} ${g.sym}</div></div>
         <div class="stat small"><div class="label">Unlocks</div><div class="value">${lk}</div></div>
       </div>
+      <div class="hint" style="margin-top:8px;">${tierNote}</div>
       <div class="grid cols-2" style="margin-top:14px;">
         <div class="field"><label>Stake LP</label>
+          <div class="row" style="margin-bottom:6px;"><select data-in="t" ${locked ? 'disabled' : ''} style="flex:1;">${tierSel}</select></div>
           <div class="row"><input type="text" data-in="s" placeholder="0.0" style="flex:1;" /><button class="small" data-sact="max" data-t="s">Max</button></div>
-          <div class="hint" data-prev>Shares you'd receive: —</div>
+          <div class="hint" data-prev>Pool shares after staking: —</div>
           <button class="primary" data-sact="stake" ${p.active ? '' : 'disabled'}>Stake</button></div>
         <div class="field"><label>Unstake LP</label>
           <div class="row"><input type="text" data-in="u" placeholder="0.0" style="flex:1;" /><button class="small" data-sact="max" data-t="u">Max</button></div>
-          <div class="hint">Available after the unlock time.</div>
+          <div class="hint">Available after the unlock time. Any LP left in the position is re-valued at 1x (no tier bonus).</div>
           <button data-sact="unstake">Unstake</button></div>
-      </div></div>`;
+      </div>
+      ${p.staked > 0n ? `<div class="row" style="margin-top:12px; align-items:center;"><button class="danger" data-sact="exit">Emergency exit</button><span class="hint">${exitNote}</span></div>` : ''}
+      </div>`;
   }).join('') || '<div class="card"><div class="muted">No LP pools have been added yet.</div></div>';
 
   // Staking admin lives in Admin > Staking. Build the cards once per access level so
@@ -4112,10 +4079,10 @@ function renderStaking(){
     adm.dataset.key = key;
     adm.innerHTML = `<div class="hint" style="margin-bottom:10px;">Signed in as ${stkOwn ? 'owner' : 'authorized address'} on the staking contract.</div>
       <div class="section-title">Staking set up</div>
-      <p class="sub">Call these after deploying, in this order: project token, reward distributor, lock period, max reserve deviation. Then add your LP pools below. Remember to authorize the staking contract on the reward distributor.</p>
+      <p class="sub">Call these after deploying, in this order: project token, reward distributor, dev address, max reserve deviation, reward penalty. Then add your LP pools below. Remember to authorize the staking contract on the reward distributor.</p>
       <div class="grid cols-2">${STK_SETUP.map(([title, fn, t, ph, key]) => `<div class="card" data-fn="${fn}"><h3>${title}</h3>
         <div class="hint" style="word-break:break-all;">Current: <span data-cur="${key}">—</span></div>
-        <input type="text" data-t="${t}" placeholder="${ph}" style="width:100%;margin:8px 0;" />
+        ${t === 'b' ? `<select data-t="b" style="width:100%;margin:8px 0;"><option value="true">true: early emergency exit costs LP + rewards</option><option value="false">false: real emergency, free exit and rewards kept</option></select>` : `<input type="text" data-t="${t}" placeholder="${ph}" style="width:100%;margin:8px 0;" />`}
         <button class="primary" data-sact="admin">${fn}()</button></div>`).join('')}</div>
       <div class="section-title">Pools &amp; maintenance</div>
       <div class="grid cols-3">${STK_ADMIN.filter(a => !a[3] || stkOwn).map(a => `<div class="card" data-fn="${a[1]}"><h3>${a[0]}</h3>
@@ -4140,7 +4107,8 @@ async function stkStake(p, card){
   if (v > p.bal){ toast('Amount is more than your wallet balance', 'err'); return; }
   try{
     if (p.allow < v) await sendTx(() => new ethers.Contract(p.lp, ERC20_ABI, signer).approve(StakingAddress, v), 'Approve LP');
-    await sendTx(() => stkW().stake(p.lp, v), 'Stake LP');
+    const tier = Number(card.querySelector('[data-in=t]').value);
+    await sendTx(() => stkW().stake(p.lp, v, tier), 'Stake LP');
     await Promise.allSettled([loadStaking(), loadDashboard()]);
   }catch(e){}
 }
@@ -4152,10 +4120,23 @@ async function stkUnstake(p, card){
     await Promise.allSettled([loadStaking(), loadDashboard()]);
   }catch(e){}
 }
+async function stkExit(p){
+  const locked = p.unlock > Date.now() / 1000;
+  const fee = (stkG.pen && locked) ? p.staked * BigInt(stkG.penBP) / 10000n : 0n;
+  const msg = fee > 0n
+    ? `Emergency exit from ${p.name}?\n\nThis closes your whole position. ${fmt(fee, p.dec)} LP (${Number(stkG.penBP) / 100}%) goes to the dev address and your pending rewards are forfeited. You get back ${fmt(p.staked - fee, p.dec)} LP.`
+    : `Exit ${p.name}?\n\nThis closes your whole position. You get all ${fmt(p.staked, p.dec)} LP back and your pending rewards are paid out.`;
+  if (!confirm(msg)) return;
+  try{
+    await sendTx(() => stkW().emergencyExit(p.lp), 'Emergency exit');
+    await Promise.allSettled([loadStaking(), loadDashboard()]);
+  }catch(e){}
+}
 async function stkAdminRun(btn){
   const card = btn.closest('[data-fn]'), fn = card.dataset.fn, args = [];
-  for (const i of card.querySelectorAll('input')){
+  for (const i of card.querySelectorAll('input, select')){
     const v = i.value.trim();
+    if (i.dataset.t === 'b'){ args.push(v === 'true'); continue; }
     if (i.dataset.t === 'a'){ if (!isAddr(v)){ toast('Enter a valid address', 'err'); return; } }
     else if (!/^\d+$/.test(v)){ toast('Enter a whole number', 'err'); return; }
     args.push(v);
@@ -4173,15 +4154,19 @@ sx('view-staking').addEventListener('click', e => {
     i.dispatchEvent(new Event('input', { bubbles: true }));
   } else if (a === 'stake') stkStake(p, card);
   else if (a === 'unstake') stkUnstake(p, card);
+  else if (a === 'exit') stkExit(p);
 });
-sx('view-staking').addEventListener('input', async e => {
-  const i = e.target; if (i.dataset.in !== 's') return;
-  const card = i.closest('[data-lp]'), p = stkPools.find(x => x.lp === card.dataset.lp), o = card.querySelector('[data-prev]');
+async function stkPreview(card){
+  const p = stkPools.find(x => x.lp === card.dataset.lp), o = card.querySelector('[data-prev]');
   try{
-    const r = await new ethers.Contract(StakingAddress, STAKING_ABI, provider).previewShareAmount(p.lp, ethers.parseUnits(i.value.trim() || '0', p.dec));
-    o.textContent = `Shares you'd receive: ${fmt(r, stkG.dec)} ${stkG.sym}`;
-  }catch(err){ o.textContent = "Shares you'd receive: —"; }
-});
+    const amt = ethers.parseUnits(card.querySelector('[data-in=s]').value.trim() || '0', p.dec);
+    const tier = Number(card.querySelector('[data-in=t]').value);
+    const r = await new ethers.Contract(StakingAddress, STAKING_ABI, provider).previewStake(userAddress, p.lp, amt, tier);
+    o.textContent = `Pool shares after staking: ${fmt(r[0], stkG.dec)} ${stkG.sym} (now ${fmt(r[1], stkG.dec)})`;
+  }catch(err){ o.textContent = 'Pool shares after staking: —'; }
+}
+sx('view-staking').addEventListener('input', e => { if (e.target.dataset.in === 's') stkPreview(e.target.closest('[data-lp]')); });
+sx('view-staking').addEventListener('change', e => { if (e.target.dataset.in === 't') stkPreview(e.target.closest('[data-lp]')); });
 sx('stkGoRewards').addEventListener('click', () => document.querySelector('.tab[data-tab="rewards"]').click());
 sx('adminStakingPane').addEventListener('click', e => { const b = e.target.closest('[data-sact="admin"]'); if (b) stkAdminRun(b); });
 
