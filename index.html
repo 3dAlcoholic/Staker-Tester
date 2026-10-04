@@ -249,6 +249,9 @@ const StakingAddress = "";                                          // LP stakin
 
   .spin{ display:inline-block; width:12px; height:12px; border-radius:50%; border:2px solid rgba(255,255,255,0.25); border-top-color:#fff; animation:sp 0.7s linear infinite; }
   @keyframes sp{ to{ transform:rotate(360deg);} }
+  .subtabs{ display:flex; gap:8px; margin-bottom:22px; }
+  .subtab{ border-radius:20px; padding:7px 18px; }
+  .subtab.active{ background:var(--pulse-dim); border-color:var(--pulse); color:#fff; }
 </style>
 </head>
 <body>
@@ -370,7 +373,6 @@ const StakingAddress = "";                                          // LP stakin
       </div>
       <div class="section-title">Your LP pools</div>
       <div id="stkPools"></div>
-      <div id="stkAdmin" style="display:none;"></div>
     </div>
   </section>
 
@@ -488,6 +490,12 @@ const StakingAddress = "";                                          // LP stakin
   <!-- ============ ADMIN ============ -->
   <section class="view" id="view-admin">
 
+    <div class="subtabs" id="adminSubtabs">
+      <button class="subtab active" data-sub="reward" id="adminSubReward">Reward Distro</button>
+      <button class="subtab" data-sub="staking" id="adminSubStaking">Staking</button>
+    </div>
+
+    <div id="adminRewardPane">
     <div id="adminLocked" class="empty-state">
       <div class="big">🔒 Admin access required</div>
       <div>This panel is restricted to addresses the contract has authorized via <code>authorize()</code>. Connect the wallet you expect to be authorized — if it isn't, every action here will simply revert on-chain regardless of what the UI shows.</div>
@@ -808,6 +816,9 @@ const StakingAddress = "";                                          // LP stakin
     </div>
 
     </div><!-- /adminContent -->
+    </div><!-- /adminRewardPane -->
+
+    <div id="adminStakingPane" style="display:none;"><div id="stkAdmin"></div></div>
 
   </section>
 
@@ -1870,7 +1881,6 @@ setInterval(()=>{
 async function checkAdminAccess(){
   if (!userAddress || !contractRead){
     isAuthd = false; isOwnerFlag = false;
-    document.getElementById('adminTabBtn').style.display = 'none';
     setAdminGateUI();
     return;
   }
@@ -1883,7 +1893,6 @@ async function checkAdminAccess(){
   }catch(e){
     isAuthd = false; isOwnerFlag = false;
   }
-  document.getElementById('adminTabBtn').style.display = isAuthd ? '' : 'none';
   setAdminGateUI();
 }
 
@@ -1893,27 +1902,47 @@ async function checkAdminAccess(){
 // also protects against the admin view being reached any other way —
 // though the real enforcement is always the contract's `authorized`
 // modifier, not this UI.
+let adminSub = null; // 'reward' | 'staking'
+function showAdminSub(name){
+  adminSub = name;
+  document.getElementById('adminRewardPane').style.display = name === 'reward' ? '' : 'none';
+  document.getElementById('adminStakingPane').style.display = name === 'staking' ? '' : 'none';
+  document.querySelectorAll('#adminSubtabs .subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
+}
+// Shows the Admin tab if the wallet is authorized on the reward distributor
+// and/or the staking contract. Each sub-tab appears only for the contract the
+// wallet is authorized on. The real enforcement is always each contract's own
+// `authorized` modifier, not this UI.
 function setAdminGateUI(){
   const locked = document.getElementById('adminLocked');
   const content = document.getElementById('adminContent');
   if (!locked || !content) return;
-  if (isAuthd){
-    locked.style.display = 'none';
-    content.style.display = '';
-  } else {
-    locked.style.display = '';
-    content.style.display = 'none';
-    // if a non-authorized wallet somehow ends up on the admin tab, bounce
-    // them back to the dashboard rather than leaving a dead locked screen
-    const adminTabActive = document.getElementById('view-admin')?.classList.contains('active');
-    if (adminTabActive){
+  const stakingAuth = (typeof stkAuth !== 'undefined') && stkAuth;
+  const any = isAuthd || stakingAuth;
+  document.getElementById('adminTabBtn').style.display = any ? '' : 'none';
+  locked.style.display = isAuthd ? 'none' : '';
+  content.style.display = isAuthd ? '' : 'none';
+  document.getElementById('adminSubReward').style.display = isAuthd ? '' : 'none';
+  document.getElementById('adminSubStaking').style.display = stakingAuth ? '' : 'none';
+  document.getElementById('adminSubtabs').style.display = (isAuthd && stakingAuth) ? '' : 'none';
+  if (!any){
+    // not authorized anywhere: bounce back to the dashboard rather than leaving a dead screen
+    if (document.getElementById('view-admin')?.classList.contains('active')){
       document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
       document.querySelector('.tab[data-tab="dashboard"]').classList.add('active');
       document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
       document.getElementById('view-dashboard').classList.add('active');
     }
+    return;
   }
+  const ok = (adminSub === 'reward' && isAuthd) || (adminSub === 'staking' && stakingAuth);
+  if (!ok) showAdminSub(isAuthd ? 'reward' : 'staking');
 }
+document.getElementById('adminSubtabs').addEventListener('click', e => {
+  const b = e.target.closest('[data-sub]'); if (!b) return;
+  showAdminSub(b.dataset.sub);
+  if (b.dataset.sub === 'reward') loadAdminTab();
+});
 
 /* ================= DASHBOARD ================= */
 async function loadDashboard(){
@@ -3975,6 +4004,8 @@ document.getElementById('transferOwnerBtn').addEventListener('click', async ()=>
 const STAKING_SET = isAddr(StakingAddress);
 const STAKING_ABI = [
   "function projectToken() view returns (address)",
+  "function rewardDistributor() view returns (address)",
+  "function setProjectToken(address)",
   "function lockPeriod() view returns (uint256)",
   "function maxReserveDeviationBP() view returns (uint256)",
   "function lpInfo(address) view returns (bool exists,bool active,bool projectIsToken0,uint256 lastRatio)",
@@ -3996,18 +4027,29 @@ const STK_ADMIN = [
   ["Pause LP (stops new stakes)", "removeLP", [["LP pair address", "a"]]],
   ["Reactivate LP", "reactivateLP", [["LP pair address", "a"]]],
   ["Force sync reserves", "forceSyncReserves", [["LP pair address", "a"]]],
-  ["Set reward distributor", "setRewardDistributor", [["New distributor address", "a"]]],
-  ["Set lock period", "setLockPeriod", [["Seconds", "n"]]],
-  ["Set max reserve deviation", "setMaxReserveDeviationBP", [["Basis points (max 5000)", "n"]]],
   ["Recover lost tokens", "recoverLostTokens", [["Token address (0x000…000 for PLS)", "a"], ["Send to", "a"]]],
   ["Authorize address", "authorize", [["Address", "a"]], 1],
   ["Revoke authorization", "warningRevokeAuthorization", [["Address", "a"]], 1],
   ["Transfer ownership", "warningTransferOwnership", [["New owner", "a"]], 1]
 ];
+// [title, function, type a=address n=number, placeholder, key for the "current value" line]
+const STK_SETUP = [
+  ["Project token", "setProjectToken", "a", "Project token address", "projectToken"],
+  ["Reward distributor", "setRewardDistributor", "a", "Reward distributor address", "rewardDistributor"],
+  ["Lock period", "setLockPeriod", "n", "Seconds", "lockPeriod"],
+  ["Max reserve deviation", "setMaxReserveDeviationBP", "n", "Basis points (max 5000)", "maxReserveDeviationBP"]
+];
 const STK_PAIR_ABI = [...ERC20_ABI, ...LP_DETECT_ABI];
 let stkPools = [], stkG = {}, stkAuth = false, stkOwn = false;
 const sx = id => document.getElementById(id);
 const stkW = () => new ethers.Contract(StakingAddress, STAKING_ABI, signer);
+function stkFillCurrent(){
+  const g = stkG, set = (k, v) => { const el = document.querySelector(`[data-cur="${k}"]`); if (el) el.textContent = v; };
+  const addr = a => (!a || a === ZERO) ? 'Not set yet' : a;
+  set('projectToken', addr(g.pt)); set('rewardDistributor', addr(g.rd));
+  set('lockPeriod', `${g.lock} s (${stkDur(Number(g.lock))})`);
+  set('maxReserveDeviationBP', `${g.dev} bp (${Number(g.dev) / 100}%)` + (Number(g.dev) === 0 ? ', price-move guard is off' : ''));
+}
 function stkDur(s){ s = Math.max(0, Math.floor(s)); const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; }
 
 async function loadStaking(){
@@ -4020,8 +4062,8 @@ async function loadStaking(){
   nw.style.display = 'none'; ct.style.display = '';
   try{
     const c = new ethers.Contract(StakingAddress, STAKING_ABI, provider);
-    const [pt, lock, dev, list, tot, auth, own] = await Promise.all([c.projectToken(), c.lockPeriod(), c.maxReserveDeviationBP(), c.getLPList(), c.userTotalShares(userAddress), c.isAuthorized(userAddress), c.isOwner(userAddress)]);
-    const meta = await fetchTokenMeta(pt);
+    const [pt, rd, lock, dev, list, tot, auth, own] = await Promise.all([c.projectToken(), c.rewardDistributor(), c.lockPeriod(), c.maxReserveDeviationBP(), c.getLPList(), c.userTotalShares(userAddress), c.isAuthorized(userAddress), c.isOwner(userAddress)]);
+    const meta = pt === ZERO ? { name: 'TOKEN', decimals: 18 } : await fetchTokenMeta(pt);
     stkAuth = auth; stkOwn = own;
     stkPools = await Promise.all(list.map(async lp => {
       const p = new ethers.Contract(lp, STK_PAIR_ABI, provider), info = await c.lpInfo(lp);
@@ -4029,7 +4071,7 @@ async function loadStaking(){
       const sy = await Promise.all([t0, t1].map(t => fetchTokenMeta(t).then(m => m.name)));
       return { lp, dec: Number(dec), name: sy.join('/'), active: info.active, ratio: info.lastRatio, bal, allow, staked: s.lpAmount, shares: s.shareAmount, unlock: Number(s.unlockTime) };
     }));
-    stkG = { pt, lock, dev, tot, sym: meta.name, dec: meta.decimals };
+    stkG = { pt, rd, lock, dev, tot, sym: meta.name, dec: meta.decimals };
     renderStaking();
   }catch(e){ console.error(e); toast('Could not load LP staking — check StakingAddress', 'err'); }
 }
@@ -4062,17 +4104,30 @@ function renderStaking(){
       </div></div>`;
   }).join('') || '<div class="card"><div class="muted">No LP pools have been added yet.</div></div>';
 
-  const adm = sx('stkAdmin');
-  if (!stkAuth){ adm.style.display = 'none'; adm.innerHTML = ''; }
-  else {
-    adm.style.display = '';
-    adm.innerHTML = `<div class="section-title">LP staking admin</div>
-      <div class="hint" style="margin-bottom:10px;">Signed in as ${stkOwn ? 'owner' : 'authorized address'} on the staking contract.</div>
+  // Staking admin lives in Admin > Staking. Build the cards once per access level so
+  // typed values and collapsed cards survive refreshes; later refreshes only update the LP list.
+  const adm = sx('stkAdmin'), key = stkAuth ? (stkOwn ? 'owner' : 'auth') : '';
+  if (!stkAuth){ adm.innerHTML = ''; adm.dataset.key = ''; }
+  else if (adm.dataset.key !== key){
+    adm.dataset.key = key;
+    adm.innerHTML = `<div class="hint" style="margin-bottom:10px;">Signed in as ${stkOwn ? 'owner' : 'authorized address'} on the staking contract.</div>
+      <div class="section-title">Staking set up</div>
+      <p class="sub">Call these after deploying, in this order: project token, reward distributor, lock period, max reserve deviation. Then add your LP pools below. Remember to authorize the staking contract on the reward distributor.</p>
+      <div class="grid cols-2">${STK_SETUP.map(([title, fn, t, ph, key]) => `<div class="card" data-fn="${fn}"><h3>${title}</h3>
+        <div class="hint" style="word-break:break-all;">Current: <span data-cur="${key}">—</span></div>
+        <input type="text" data-t="${t}" placeholder="${ph}" style="width:100%;margin:8px 0;" />
+        <button class="primary" data-sact="admin">${fn}()</button></div>`).join('')}</div>
+      <div class="section-title">Pools &amp; maintenance</div>
       <div class="grid cols-3">${STK_ADMIN.filter(a => !a[3] || stkOwn).map(a => `<div class="card" data-fn="${a[1]}"><h3>${a[0]}</h3>
         ${a[2].map(([l, t]) => `<input type="text" data-t="${t}" placeholder="${l}" ${t === 'a' ? 'list="stkLps"' : ''} style="width:100%;margin-bottom:8px;" />`).join('')}
         <button class="primary" data-sact="admin">Run</button></div>`).join('')}</div>
       <datalist id="stkLps">${stkPools.map(p => `<option value="${p.lp}">`).join('')}</datalist>`;
+    makeAdminCardsCollapsible();
+  } else {
+    const dl = sx('stkLps'); if (dl) dl.innerHTML = stkPools.map(p => `<option value="${p.lp}">`).join('');
   }
+  stkFillCurrent();
+  setAdminGateUI();
   attachCopyHandlers();
 }
 
@@ -4118,7 +4173,6 @@ sx('view-staking').addEventListener('click', e => {
     i.dispatchEvent(new Event('input', { bubbles: true }));
   } else if (a === 'stake') stkStake(p, card);
   else if (a === 'unstake') stkUnstake(p, card);
-  else if (a === 'admin') stkAdminRun(b);
 });
 sx('view-staking').addEventListener('input', async e => {
   const i = e.target; if (i.dataset.in !== 's') return;
@@ -4129,6 +4183,7 @@ sx('view-staking').addEventListener('input', async e => {
   }catch(err){ o.textContent = "Shares you'd receive: —"; }
 });
 sx('stkGoRewards').addEventListener('click', () => document.querySelector('.tab[data-tab="rewards"]').click());
+sx('adminStakingPane').addEventListener('click', e => { const b = e.target.closest('[data-sact="admin"]'); if (b) stkAdminRun(b); });
 
 /* ---------------- init ---------------- */
 /* ================= ADMIN: COLLAPSIBLE CARDS ================= */
