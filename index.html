@@ -104,6 +104,9 @@ const StakingAddress = "0x8f984096B94104ef45efE4fDfB5D2a77841c259c";            
   .exit-warn.penalty{ color:#ffd0d0; border-color:rgba(255,92,92,0.45); background:rgba(255,92,92,0.07); }
   .exit-warn.free{ border-color:rgba(120,200,150,0.3); background:rgba(120,200,150,0.05); }
 
+  .warn-chev{ transition:transform .15s; flex:none; }
+  .warn-collapsed .warn-chev{ transform:rotate(-90deg); }
+  .warn-collapsed .warn-body{ display:none; }
   .stk-toggle{ transition:transform .15s; }
   .stk-collapsed .stk-toggle{ transform:rotate(-90deg); }
   .stk-collapsed .stk-body{ display:none; }
@@ -386,13 +389,15 @@ const StakingAddress = "0x8f984096B94104ef45efE4fDfB5D2a77841c259c";            
         <div style="flex:1;">Your staked LP counts toward your pool share, so you earn dividends on it like any other share. The shares from <b>all the pools you have staked in are added together</b> into one total reward share. Choose which tokens those dividends are paid in on the Reward Tokens tab.</div>
         <button class="small primary" id="stkGoRewards">Set reward tokens</button>
       </div>
-      <div class="lock-note" style="margin-top:10px;">
+      <div class="lock-note warn-collapsed" id="stkPartialWarn" style="margin-top:10px;">
         <span>⚠</span>
         <div style="flex:1; line-height:1.55;">
-          <b>Partial unstake: the LP you leave behind loses its tier bonus.</b>
+          <div id="stkPartialWarnHead" style="display:flex; justify-content:space-between; align-items:center; gap:10px; cursor:pointer;" title="Collapse / expand"><b>Partial unstake: the LP you leave behind loses its tier bonus.</b><span class="warn-chev">▾</span></div>
+          <div class="warn-body">
           <div style="margin-top:4px;">Your lock bonus only applies while your LP is locked. Once the lock has ended and you unstake part of your position, the LP that stays staked is re-valued at <b>1x</b> (no tier bonus), using the pool's current reserves. Your shares in that pool drop by more than the amount you withdrew.</div>
           <div style="margin-top:4px;"><i>Example:</i> 1,000 worth of LP staked for 1 year earns +50%, so 1,500 shares. Unstake half, and the 500 left is re-valued at 1x, giving 500 shares instead of 750.</div>
           <div style="margin-top:4px;">Unstaking does not restart your lock. To earn a bonus on what's left, stake more and pick a tier: your whole position is then re-valued at that tier and the lock restarts. If you withdraw everything, the position simply closes.</div>
+          </div>
         </div>
       </div>
       <div class="section-title">Your LP pools</div>
@@ -2155,8 +2160,21 @@ async function loadDashboard(){
       }
     }catch(e){ console.error(e); }
 
+    // Number of whitelisted LP pools the connected wallet currently has LP staked in.
+    let poolsStakedValue = '—', poolsStakedFoot = 'LP staking not set up';
+    if (STAKING_SET){
+      try{
+        const stk = new ethers.Contract(StakingAddress, STAKING_ABI, provider);
+        const lpList = await stk.getLPList();
+        const stakes = await Promise.all(lpList.map(lp => stk.getUserStake(userAddress, lp)));
+        const inPools = stakes.filter(x => x.lpAmount > 0n).length;
+        poolsStakedValue = `${inPools} / ${lpList.length}`;
+        poolsStakedFoot = 'whitelisted LP pools';
+      }catch(e){ console.error(e); poolsStakedFoot = 'could not load LP staking'; }
+    }
+
     const statsHtml = [
-      { label:'Holding value', value: holdingUsdLabel, foot:'current USD value of your shares' },
+      { label:'Pools staked in', value: poolsStakedValue, foot: poolsStakedFoot },
       { label:'Your share', value: fmt(shareAmount), foot:'raw share units' },
       { label:'Pool share', value: fmtSharePct(shareAmount, totalShares), foot:'% of total share pool' },
       { label:'Total pending', value: fmt(totalPending), foot:'≈ PLS value, pre-swap', cls:'pulse' },
@@ -4235,6 +4253,7 @@ async function stkPreview(card){
 }
 sx('view-staking').addEventListener('input', e => { if (e.target.dataset.in === 's'){ const c = e.target.closest('[data-lp]'); stkPreview(c); stkUpdateStakeBtn(c); } });
 sx('view-staking').addEventListener('change', e => { if (e.target.dataset.in === 't') stkPreview(e.target.closest('[data-lp]')); });
+sx('stkPartialWarnHead').addEventListener('click', () => sx('stkPartialWarn').classList.toggle('warn-collapsed'));
 sx('stkGoRewards').addEventListener('click', () => document.querySelector('.tab[data-tab="rewards"]').click());
 sx('adminStakingPane').addEventListener('click', e => { const b = e.target.closest('[data-sact="admin"]'); if (b) stkAdminRun(b); });
 
