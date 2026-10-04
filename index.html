@@ -98,6 +98,11 @@ const StakingAddress = "0x34B2b336E234019512Ab6bF5d60822CDe3F2eafc";            
   button.danger{ border-color: rgba(255,92,92,0.4); color:#ffb0b0; }
   button.danger:hover{ background: rgba(255,92,92,0.08); }
   button.small{ padding:5px 10px; font-size:12px; }
+  .pct-row{ display:flex; gap:6px; margin-top:6px; }
+  .pct-row button{ flex:1; }
+  .exit-warn{ margin-top:8px; padding:10px 12px; border-radius:8px; font-size:12px; line-height:1.5; color:var(--text-dim); border:1px solid rgba(255,255,255,0.1); }
+  .exit-warn.penalty{ color:#ffd0d0; border-color:rgba(255,92,92,0.45); background:rgba(255,92,92,0.07); }
+  .exit-warn.free{ border-color:rgba(120,200,150,0.3); background:rgba(120,200,150,0.05); }
 
   #walletBtn b{ color: var(--cyan); }
 
@@ -3957,7 +3962,7 @@ const STAKING_ABI = [
   "function setProjectToken(address)",
   "function devAddress() view returns (address)",
   "function rewardPenalty() view returns (bool)",
-  "function EMERGENCY_PENALTY_BP() view returns (uint256)",
+  "function emergencyPenaltyBP() view returns (uint256)",
   "function getTier(uint8) view returns (uint256 duration,uint256 multiplierBP)",
   "function maxReserveDeviationBP() view returns (uint256)",
   "function lpInfo(address) view returns (bool exists,bool active,bool projectIsToken0,uint256 lastRatio)",
@@ -3969,7 +3974,7 @@ const STAKING_ABI = [
   "function isOwner(address) view returns (bool)",
   "function isAuthorized(address) view returns (bool)",
   "function stake(address,uint256,uint8)", "function unstake(address,uint256)", "function emergencyExit(address)",
-  "function addLP(address)", "function removeLP(address)", "function reactivateLP(address)", "function forceSyncReserves(address)",
+  "function addLP(address)", "function removeLP(uint256)", "function reactivateLP(uint256)", "function forceSyncReserves(uint256)", "function setEmergencyPenaltyBP(uint256)",
   "function setRewardDistributor(address)", "function setDevAddress(address)", "function setRewardPenalty(bool)", "function setMaxReserveDeviationBP(uint256)",
   "function recoverLostTokens(address,address)",
   "function authorize(address)", "function warningRevokeAuthorization(address)", "function warningTransferOwnership(address)"
@@ -3977,9 +3982,9 @@ const STAKING_ABI = [
 // [title, function, [[placeholder, type a=address n=number]], ownerOnly]
 const STK_ADMIN = [
   ["Add LP", "addLP", [["LP pair address", "a"]]],
-  ["Pause LP (stops new stakes)", "removeLP", [["LP pair address", "a"]]],
-  ["Reactivate LP", "reactivateLP", [["LP pair address", "a"]]],
-  ["Force sync reserves", "forceSyncReserves", [["LP pair address", "a"]]],
+  ["Pause LP (stops new stakes)", "removeLP", [["LP index (see pool cards)", "n"]]],
+  ["Reactivate LP", "reactivateLP", [["LP index (see pool cards)", "n"]]],
+  ["Force sync reserves", "forceSyncReserves", [["LP index (see pool cards)", "n"]]],
   ["Recover lost tokens", "recoverLostTokens", [["Token address (0x000…000 for PLS)", "a"], ["Send to", "a"]]],
   ["Authorize address", "authorize", [["Address", "a"]], 1],
   ["Revoke authorization", "warningRevokeAuthorization", [["Address", "a"]], 1],
@@ -3991,6 +3996,7 @@ const STK_SETUP = [
   ["Reward distributor", "setRewardDistributor", "a", "Reward distributor address", "rewardDistributor"],
   ["Dev address (gets the emergency-exit LP fee and forfeited PLS)", "setDevAddress", "a", "Dev address", "devAddress"],
   ["Reward penalty (early emergency exit costs LP + rewards)", "setRewardPenalty", "b", "", "rewardPenalty"],
+  ["Early exit penalty", "setEmergencyPenaltyBP", "n", "Basis points (2000 = 20%, max 5000)", "emergencyPenaltyBP"],
   ["Max reserve deviation", "setMaxReserveDeviationBP", "n", "Basis points (max 5000)", "maxReserveDeviationBP"]
 ];
 const STK_PAIR_ABI = [...ERC20_ABI, ...LP_DETECT_ABI];
@@ -4003,6 +4009,7 @@ function stkFillCurrent(){
   set('projectToken', addr(g.pt)); set('rewardDistributor', addr(g.rd));
   set('devAddress', addr(g.devA));
   set('rewardPenalty', g.pen ? `ON: an early emergency exit costs ${Number(g.penBP) / 100}% of the LP and forfeits rewards` : 'OFF: emergency exits are free and keep rewards');
+  set('emergencyPenaltyBP', `${g.penBP} bp (${Number(g.penBP) / 100}%)`);
   set('maxReserveDeviationBP', `${g.dev} bp (${Number(g.dev) / 100}%)` + (Number(g.dev) === 0 ? ', price-move guard is off' : ''));
 }
 function stkTierName(i){ const t = stkTiers[i]; if (!t) return '?'; const d = Math.round(t.dur / 86400); return d === 30 ? '1 month' : d === 90 ? '3 months' : d === 180 ? '6 months' : d === 365 ? '1 year' : stkDur(t.dur); }
@@ -4019,15 +4026,15 @@ async function loadStaking(){
   nw.style.display = 'none'; ct.style.display = '';
   try{
     const c = new ethers.Contract(StakingAddress, STAKING_ABI, provider);
-    const [pt, rd, devA, pen, penBP, tierRaw, dev, list, tot, auth, own] = await Promise.all([c.projectToken(), c.rewardDistributor(), c.devAddress(), c.rewardPenalty(), c.EMERGENCY_PENALTY_BP(), Promise.all([0, 1, 2, 3].map(i => c.getTier(i))), c.maxReserveDeviationBP(), c.getLPList(), c.userTotalShares(userAddress), c.isAuthorized(userAddress), c.isOwner(userAddress)]);
+    const [pt, rd, devA, pen, penBP, tierRaw, dev, list, tot, auth, own] = await Promise.all([c.projectToken(), c.rewardDistributor(), c.devAddress(), c.rewardPenalty(), c.emergencyPenaltyBP(), Promise.all([0, 1, 2, 3].map(i => c.getTier(i))), c.maxReserveDeviationBP(), c.getLPList(), c.userTotalShares(userAddress), c.isAuthorized(userAddress), c.isOwner(userAddress)]);
     stkTiers = tierRaw.map(t => ({ dur: Number(t[0]), bp: Number(t[1]) }));
     const meta = pt === ZERO ? { name: 'TOKEN', decimals: 18 } : await fetchTokenMeta(pt);
     stkAuth = auth; stkOwn = own;
-    stkPools = await Promise.all(list.map(async lp => {
+    stkPools = await Promise.all(list.map(async (lp, idx) => {
       const p = new ethers.Contract(lp, STK_PAIR_ABI, provider), info = await c.lpInfo(lp);
       const [dec, t0, t1, bal, allow, s] = await Promise.all([p.decimals(), p.token0(), p.token1(), p.balanceOf(userAddress), p.allowance(userAddress, StakingAddress), c.getUserStake(userAddress, lp)]);
       const sy = await Promise.all([t0, t1].map(t => fetchTokenMeta(t).then(m => m.name)));
-      return { lp, dec: Number(dec), name: sy.join('/'), active: info.active, ratio: info.lastRatio, bal, allow, staked: s.lpAmount, shares: s.shareAmount, unlock: Number(s.unlockTime), tier: Number(s.tier) };
+      return { idx, lp, dec: Number(dec), name: sy.join('/'), active: info.active, ratio: info.lastRatio, bal, allow, staked: s.lpAmount, shares: s.shareAmount, unlock: Number(s.unlockTime), tier: Number(s.tier) };
     }));
     stkG = { pt, rd, devA, pen, penBP, dev, tot, sym: meta.name, dec: meta.decimals };
     renderStaking();
@@ -4045,9 +4052,16 @@ function renderStaking(){
     const lk = p.staked > 0n ? (p.unlock > now ? 'in ' + stkDur(p.unlock - now) : 'Unlocked') : '—';
     const tierSel = stkTiers.map((t, i) => `<option value="${i}" ${i === (p.staked > 0n ? p.tier : 0) ? 'selected' : ''}>${stkTierLabel(i)}</option>`).join('');
     const tierNote = p.staked > 0n ? `Lock tier: ${stkTierLabel(p.tier)}${locked ? ' (locked in until unlock)' : ' (lock ended, you can pick a new tier)'}` : 'No position yet';
-    const exitNote = (g.pen && locked) ? `Closes the whole position now. ${Number(g.penBP) / 100}% of your LP goes to the dev address and your pending rewards are forfeited.` : 'Closes the whole position now. You get all your LP back and your rewards are paid out.';
+    const penalised = g.pen && locked, hasPos = p.staked > 0n;
+    const feeLp = penalised ? p.staked * BigInt(g.penBP) / 10000n : 0n;
+    const pctBtns = t => `<div class="pct-row">${[25, 50, 75, 100].map(n => `<button class="small" data-sact="pct" data-t="${t}" data-pct="${n}">${n === 100 ? 'Max' : n + '%'}</button>`).join('')}</div>`;
+    const exitWarn = !hasPos
+      ? `<div class="exit-warn">You have nothing staked in this pool.</div>`
+      : penalised
+        ? `<div class="exit-warn penalty"><b>Warning:</b> your lock has not ended. Exiting now closes your <b>whole position</b>, takes a <b>${Number(g.penBP) / 100}% penalty</b> (${fmt(feeLp, p.dec)} LP goes to the dev address) and <b>forfeits all your pending rewards</b>. You would get back ${fmt(p.staked - feeLp, p.dec)} LP. Wait until the unlock time to exit with no penalty.</div>`
+        : `<div class="exit-warn free">No penalty applies${g.pen ? ' because your lock has ended' : ' right now'}. Exiting closes your whole position, returns all ${fmt(p.staked, p.dec)} LP and pays out your pending rewards.</div>`;
     return `<div class="card" data-lp="${p.lp}">
-      <h3>${p.name} <span class="badge ${p.active ? 'ok' : 'warn'}">${p.active ? 'Active' : 'New stakes paused'}</span></h3>
+      <h3>${p.name} ${stkAuth ? `<span class="mono-cell">#${p.idx}</span> ` : ''}<span class="badge ${p.active ? 'ok' : 'warn'}">${p.active ? 'Active' : 'New stakes paused'}</span></h3>
       <p class="sub"><span class="mono-cell truncaddr" data-copy="${p.lp}">${p.lp}</span></p>
       <div class="grid cols-4">
         <div class="stat small"><div class="label">Wallet LP</div><div class="value">${fmt(p.bal, p.dec)}</div></div>
@@ -4059,15 +4073,20 @@ function renderStaking(){
       <div class="grid cols-2" style="margin-top:14px;">
         <div class="field"><label>Stake LP</label>
           <div class="row" style="margin-bottom:6px;"><select data-in="t" ${locked ? 'disabled' : ''} style="flex:1;">${tierSel}</select></div>
-          <div class="row"><input type="text" data-in="s" placeholder="0.0" style="flex:1;" /><button class="small" data-sact="max" data-t="s">Max</button></div>
+          <div class="row"><input type="text" data-in="s" placeholder="0.0" style="flex:1;" /></div>
+          ${pctBtns('s')}
           <div class="hint" data-prev>Pool shares after staking: —</div>
           <button class="primary" data-sact="stake" ${p.active ? '' : 'disabled'}>Stake</button></div>
         <div class="field"><label>Unstake LP</label>
-          <div class="row"><input type="text" data-in="u" placeholder="0.0" style="flex:1;" /><button class="small" data-sact="max" data-t="u">Max</button></div>
+          <div class="row"><input type="text" data-in="u" placeholder="0.0" style="flex:1;" /></div>
+          ${pctBtns('u')}
           <div class="hint">Available after the unlock time. Any LP left in the position is re-valued at 1x (no tier bonus).</div>
           <button data-sact="unstake">Unstake</button></div>
       </div>
-      ${p.staked > 0n ? `<div class="row" style="margin-top:12px; align-items:center;"><button class="danger" data-sact="exit">Emergency exit</button><span class="hint">${exitNote}</span></div>` : ''}
+      <div style="margin-top:14px;">
+        <button class="danger" data-sact="exit" ${hasPos ? '' : 'disabled'} style="width:100%;">Emergency exit</button>
+        ${exitWarn}
+      </div>
       </div>`;
   }).join('') || '<div class="card"><div class="muted">No LP pools have been added yet.</div></div>';
 
@@ -4148,9 +4167,9 @@ async function stkAdminRun(btn){
 sx('view-staking').addEventListener('click', e => {
   const b = e.target.closest('[data-sact]'); if (!b) return;
   const card = b.closest('[data-lp]'), p = card && stkPools.find(x => x.lp === card.dataset.lp), a = b.dataset.sact;
-  if (a === 'max'){
-    const i = card.querySelector(`[data-in=${b.dataset.t}]`);
-    i.value = ethers.formatUnits(b.dataset.t === 's' ? p.bal : p.staked, p.dec);
+  if (a === 'pct'){
+    const i = card.querySelector(`[data-in=${b.dataset.t}]`), base = b.dataset.t === 's' ? p.bal : p.staked, pct = BigInt(b.dataset.pct);
+    i.value = ethers.formatUnits(pct === 100n ? base : base * pct / 100n, p.dec);
     i.dispatchEvent(new Event('input', { bubbles: true }));
   } else if (a === 'stake') stkStake(p, card);
   else if (a === 'unstake') stkUnstake(p, card);
